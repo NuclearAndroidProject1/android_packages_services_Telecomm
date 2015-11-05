@@ -90,6 +90,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
     private static final int MAXIMUM_LIVE_CALLS = 1;
     private static final int MAXIMUM_HOLD_CALLS = 1;
     private static final int MAXIMUM_RINGING_CALLS = 1;
+    private static final int MAXIMUM_DIALING_CALLS = 1;
     private static final int MAXIMUM_OUTGOING_CALLS = 1;
     private static final int MAXIMUM_TOP_LEVEL_CALLS = 2;
     private static final int MAXIMUM_DSDA_LIVE_CALLS = 2;
@@ -273,9 +274,20 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
             mMissedCallNotifier.showMissedCallNotification(incomingCall);
             mCallLogManager.logCall(incomingCall, Calls.MISSED_TYPE);
         } else {
-            if (TelephonyManager.getDefault().getMultiSimConfiguration()
-                == TelephonyManager.MultiSimVariants.DSDA) {
-                incomingCall.mIsActiveSub = true;
+            setCallState(incomingCall, CallState.RINGING, "ringing set explicitly");
+            if (hasMaximumRingingCalls(incomingCall.getTargetPhoneAccount().getId()) || hasMaximumDialingCalls()) {
+                incomingCall.reject(false, null);
+                // since the call was not added to the list of calls, we have to call the missed
+                // call notifier and the call logger manually.
+                mMissedCallNotifier.showMissedCallNotification(incomingCall);
+                mCallLogManager.logCall(incomingCall, Calls.MISSED_TYPE);
+            } else {
+                if (TelephonyManager.getDefault().getMultiSimConfiguration()
+                    == TelephonyManager.MultiSimVariants.DSDA) {
+                    incomingCall.mIsActiveSub = true;
+                }
+                addCall(incomingCall);
+                setActiveSubscription(incomingCall.getTargetPhoneAccount().getId());
             }
             addCall(incomingCall);
             setActiveSubscription(incomingCall.getTargetPhoneAccount().getId());
@@ -463,6 +475,15 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
             }
         }
         return false;
+    }
+
+    boolean hasOnlyDisconnectedCalls() {
+        for (Call call : mCalls) {
+            if (!call.isDisconnected()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     boolean hasVideoCall() {
@@ -678,13 +699,11 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
 
         call.setTargetPhoneAccount(phoneAccountHandle);
 
-        boolean isEmergencyCall = TelephonyUtil.shouldProcessAsEmergency(mContext,
-                call.getHandle());
         boolean isPotentialInCallMMICode = isPotentialInCallMMICode(handle);
 
         // Do not support any more live calls.  Our options are to move a call to hold, disconnect
         // a call, or cancel this call altogether.
-        if (!isPotentialInCallMMICode && !makeRoomForOutgoingCall(call, isEmergencyCall)) {
+        if (!isPotentialInCallMMICode && !makeRoomForOutgoingCall(call, call.isEmergencyCall())) {
             // just cancel at this point.
             Log.i(this, "No remaining room for outgoing call: %s", call);
             if (mCalls.contains(call)) {
@@ -696,7 +715,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
         }
 
         boolean needsAccountSelection = phoneAccountHandle == null && accounts.size() > 1 &&
-                !isEmergencyCall;
+                !call.isEmergencyCall();
 
         if (needsAccountSelection) {
             // This is the state where the user is expected to select an account
@@ -758,15 +777,13 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
                 || mDockManager.isDocked());
         call.setVideoState(videoState);
 
-        boolean isEmergencyCall = TelephonyUtil.shouldProcessAsEmergency(mContext,
-                call.getHandle());
-        if (isEmergencyCall) {
+        if (call.isEmergencyCall()) {
             // Emergency -- CreateConnectionProcessor will choose accounts automatically
             call.setTargetPhoneAccount(null);
         }
 
-        if (call.getTargetPhoneAccount() != null || isEmergencyCall) {
-            if (!isEmergencyCall) {
+        if (call.getTargetPhoneAccount() != null || call.isEmergencyCall()) {
+            if (!call.isEmergencyCall()) {
                 updateLchStatus(call.getTargetPhoneAccount().getId());
             }
             // If the account has been set, proceed to place the outgoing call.
@@ -1732,6 +1749,10 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
 
     private boolean hasMaximumOutgoingCalls() {
         return MAXIMUM_OUTGOING_CALLS <= getNumCallsWithState(OUTGOING_CALL_STATES);
+    }
+
+    private boolean hasMaximumDialingCalls() {
+        return MAXIMUM_DIALING_CALLS <= getNumCallsWithState(CallState.DIALING);
     }
 
     private boolean makeRoomForOutgoingCall(Call call, boolean isEmergency) {
