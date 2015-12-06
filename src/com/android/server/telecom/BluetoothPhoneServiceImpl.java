@@ -260,13 +260,11 @@ public final class BluetoothPhoneServiceImpl {
                 long token = Binder.clearCallingIdentity();
                 try {
                     Log.i(TAG, "queryPhoneState");
-                    if (isDsdaEnabled()) {
-                        if (mBluetoothDsda != null) {
-                            try {
-                                mBluetoothDsda.processQueryPhoneState();
-                            } catch (RemoteException e) {
-                                Log.i(TAG, "DSDA Service not found exception " + e);
-                            }
+                    if (isDsdaEnabled() && (mBluetoothDsda != null)) {
+                        try {
+                            mBluetoothDsda.processQueryPhoneState();
+                        } catch (RemoteException e) {
+                            Log.i(TAG, "DSDA Service not found exception " + e);
                         }
                     } else {
                         updateHeadsetWithCallState(true /* force */, null);
