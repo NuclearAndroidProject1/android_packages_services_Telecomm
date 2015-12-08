@@ -267,7 +267,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
         Log.d(this, "onSuccessfulIncomingCall");
         setCallState(incomingCall, CallState.RINGING, "successful incoming call");
 
-        if (hasMaximumRingingCalls(incomingCall.getTargetPhoneAccount().getId())) {
+        if (hasMaximumRingingCalls() || hasMaximumDialingCalls()) {
             incomingCall.reject(false, null);
             // since the call was not added to the list of calls, we have to call the missed
             // call notifier and the call logger manually.
@@ -777,15 +777,19 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
                 || mDockManager.isDocked());
         call.setVideoState(videoState);
 
+        if (speakerphoneOn) {
+            Log.i(this, "%s Starting with speakerphone as requested", call);
+        } else {
+            Log.i(this, "%s Starting with speakerphone because car is docked.", call);
+        }
+        call.setStartWithSpeakerphoneOn(speakerphoneOn || mDockManager.isDocked());
+
         if (call.isEmergencyCall()) {
             // Emergency -- CreateConnectionProcessor will choose accounts automatically
             call.setTargetPhoneAccount(null);
         }
 
         if (call.getTargetPhoneAccount() != null || call.isEmergencyCall()) {
-            if (!call.isEmergencyCall()) {
-                updateLchStatus(call.getTargetPhoneAccount().getId());
-            }
             // If the account has been set, proceed to place the outgoing call.
             // Otherwise the connection will be initiated when the account is set by the user.
             call.startCreateConnection(mPhoneAccountRegistrar);
