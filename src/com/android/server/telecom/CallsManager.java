@@ -267,27 +267,16 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
         Log.d(this, "onSuccessfulIncomingCall");
         setCallState(incomingCall, CallState.RINGING, "successful incoming call");
 
-        if (hasMaximumRingingCalls() || hasMaximumDialingCalls()) {
+        if (hasMaximumRingingCalls(incomingCall.getTargetPhoneAccount().getId())) {
             incomingCall.reject(false, null);
             // since the call was not added to the list of calls, we have to call the missed
             // call notifier and the call logger manually.
             mMissedCallNotifier.showMissedCallNotification(incomingCall);
             mCallLogManager.logCall(incomingCall, Calls.MISSED_TYPE);
         } else {
-            setCallState(incomingCall, CallState.RINGING, "ringing set explicitly");
-            if (hasMaximumRingingCalls(incomingCall.getTargetPhoneAccount().getId()) || hasMaximumDialingCalls()) {
-                incomingCall.reject(false, null);
-                // since the call was not added to the list of calls, we have to call the missed
-                // call notifier and the call logger manually.
-                mMissedCallNotifier.showMissedCallNotification(incomingCall);
-                mCallLogManager.logCall(incomingCall, Calls.MISSED_TYPE);
-            } else {
-                if (TelephonyManager.getDefault().getMultiSimConfiguration()
-                    == TelephonyManager.MultiSimVariants.DSDA) {
-                    incomingCall.mIsActiveSub = true;
-                }
-                addCall(incomingCall);
-                setActiveSubscription(incomingCall.getTargetPhoneAccount().getId());
+            if (TelephonyManager.getDefault().getMultiSimConfiguration()
+                == TelephonyManager.MultiSimVariants.DSDA) {
+                incomingCall.mIsActiveSub = true;
             }
             addCall(incomingCall);
             setActiveSubscription(incomingCall.getTargetPhoneAccount().getId());
