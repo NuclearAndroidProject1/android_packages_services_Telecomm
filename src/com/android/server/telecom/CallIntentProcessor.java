@@ -136,12 +136,6 @@ public class CallIntentProcessor {
             clientExtras.putString(TelecomManager.EXTRA_CALL_SUBJECT, callsubject);
         }
 
-        // Ensure call subject is passed on to the connection service.
-        if (intent.hasExtra(TelecomManager.EXTRA_CALL_SUBJECT)) {
-            String callsubject = intent.getStringExtra(TelecomManager.EXTRA_CALL_SUBJECT);
-            clientExtras.putString(TelecomManager.EXTRA_CALL_SUBJECT, callsubject);
-        }
-
         final boolean isPrivilegedDialer = intent.getBooleanExtra(KEY_IS_PRIVILEGED_DIALER, false);
 
         // Send to CallsManager to ensure the InCallUI gets kicked off before the broadcast returns

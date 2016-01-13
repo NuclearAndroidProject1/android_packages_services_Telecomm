@@ -44,6 +44,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.server.telecom.ui.ViceNotificationImpl;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -139,6 +140,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
     private final CallerInfoAsyncQueryFactory mCallerInfoAsyncQueryFactory;
     private final PhoneAccountRegistrar mPhoneAccountRegistrar;
     private final MissedCallNotifier mMissedCallNotifier;
+    private final ViceNotificationImpl mViceNotificationImpl;
     private final Set<Call> mLocallyDisconnectingCalls = new HashSet<>();
     private final Set<Call> mPendingCallsToDisconnect = new HashSet<>();
     /* Handler tied to thread in which CallManager was initialized. */
@@ -181,7 +183,8 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
             PhoneAccountRegistrar phoneAccountRegistrar,
             HeadsetMediaButtonFactory headsetMediaButtonFactory,
             ProximitySensorManagerFactory proximitySensorManagerFactory,
-            InCallWakeLockControllerFactory inCallWakeLockControllerFactory) {
+            InCallWakeLockControllerFactory inCallWakeLockControllerFactory,
+            ViceNotifier viceNotifier) {
         mContext = context;
         mLock = lock;
         mContactsAsyncHelper = contactsAsyncHelper;
@@ -206,6 +209,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
         mConnectionServiceRepository =
                 new ConnectionServiceRepository(mPhoneAccountRegistrar, mContext, mLock, this);
         mInCallWakeLockController = inCallWakeLockControllerFactory.create(context, this);
+        mViceNotificationImpl = viceNotifier.create(mContext, this);
 
         mListeners.add(statusBarNotifier);
         mListeners.add(mCallLogManager);
@@ -219,9 +223,14 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
         mListeners.add(mDtmfLocalTonePlayer);
         mListeners.add(mHeadsetMediaButton);
         mListeners.add(mProximitySensorManager);
+        mListeners.add(mViceNotificationImpl);
 
         mMissedCallNotifier.updateOnStartup(
                 mLock, this, mContactsAsyncHelper, mCallerInfoAsyncQueryFactory);
+    }
+
+    ViceNotificationImpl getViceNotificationImpl() {
+        return mViceNotificationImpl;
     }
 
     public void setRespondViaSmsManager(RespondViaSmsManager respondViaSmsManager) {
@@ -267,7 +276,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
         Log.d(this, "onSuccessfulIncomingCall");
         setCallState(incomingCall, CallState.RINGING, "successful incoming call");
 
-        if (hasMaximumRingingCalls(incomingCall.getTargetPhoneAccount().getId())) {
+        if (hasMaximumRingingCalls(incomingCall.getTargetPhoneAccount().getId()) || hasMaximumDialingCalls() ) {
             incomingCall.reject(false, null);
             // since the call was not added to the list of calls, we have to call the missed
             // call notifier and the call logger manually.
@@ -766,19 +775,15 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
                 || mDockManager.isDocked());
         call.setVideoState(videoState);
 
-        if (speakerphoneOn) {
-            Log.i(this, "%s Starting with speakerphone as requested", call);
-        } else {
-            Log.i(this, "%s Starting with speakerphone because car is docked.", call);
-        }
-        call.setStartWithSpeakerphoneOn(speakerphoneOn || mDockManager.isDocked());
-
         if (call.isEmergencyCall()) {
             // Emergency -- CreateConnectionProcessor will choose accounts automatically
             call.setTargetPhoneAccount(null);
         }
 
         if (call.getTargetPhoneAccount() != null || call.isEmergencyCall()) {
+            if (!call.isEmergencyCall()) {
+                updateLchStatus(call.getTargetPhoneAccount().getId());
+            }
             // If the account has been set, proceed to place the outgoing call.
             // Otherwise the connection will be initiated when the account is set by the user.
             call.startCreateConnection(mPhoneAccountRegistrar);
@@ -1317,6 +1322,16 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
         return count;
     }
 
+    int getNumTopLevelCalls() {
+        int count = 0;
+        for (Call call : mCalls) {
+            if (call.getParentCall() == null) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     Call getOutgoingCall() {
         return getFirstCallWithState(OUTGOING_CALL_STATES);
     }
@@ -1586,7 +1601,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
                 }
 
                 // If only call in call list is held call it's also a foreground call
-                if (mCalls.size() == 1 && call.getState() == CallState.ON_HOLD) {
+                if (getNumTopLevelCalls() == 1 && call.getState() == CallState.ON_HOLD) {
                     newForegroundCall = call;
                 }
 
@@ -1619,7 +1634,7 @@ public class CallsManager extends Call.ListenerBase implements VideoProviderProx
                 }
 
                 // If only call in call list is held call it's also a foreground call
-                if (mCalls.size() == 1 && call.getState() == CallState.ON_HOLD) {
+                if (getNumTopLevelCalls() == 1 && call.getState() == CallState.ON_HOLD) {
                     newForegroundCall = call;
                 }
 
